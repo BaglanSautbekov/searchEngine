@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mini-search-postgres
+    environment:
+      POSTGRES_DB: mini_search
+      POSTGRES_USER: mini_search
+      POSTGRES_PASSWORD: mini_search
+    ports:
+      - "5432:5432"
+    volumes:
+      - mini_search_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mini_search -d mini_search"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    container_name: mini-search-opensearch
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      bootstrap.memory_lock: "true"
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - mini_search_opensearch_data:/usr/share/opensearch/data
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  mini_search_postgres_data:
+  mini_search_opensearch_data:
