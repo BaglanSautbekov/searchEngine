@@ -1,4 +1,4 @@
-package com.example.minisearch.api;
+package com.baglan.searchEngine.api;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
