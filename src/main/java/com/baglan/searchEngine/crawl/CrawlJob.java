@@ -58,6 +58,29 @@ public class CrawlJob {
         this.createdAtUtc = createdAtUtc;
     }
 
+    public void markRunning(Instant now) {
+        this.status = CrawlJobStatus.RUNNING;
+        this.startedAtUtc = now;
+        this.errorMessage = null;
+    }
+
+    public void updatePagesDiscovered(int pagesDiscovered) {
+        this.pagesDiscovered = pagesDiscovered;
+    }
+
+    public void markCompleted(Instant now, int pagesDiscovered) {
+        this.status = CrawlJobStatus.COMPLETED;
+        this.pagesDiscovered = pagesDiscovered;
+        this.finishedAtUtc = now;
+        this.errorMessage = null;
+    }
+
+    public void markFailed(Instant now, String errorMessage) {
+        this.status = CrawlJobStatus.FAILED;
+        this.finishedAtUtc = now;
+        this.errorMessage = errorMessage;
+    }
+
     public UUID getId() {
         return id;
     }
