@@ -73,17 +73,19 @@ public class CrawlJob {
         this.errorMessage = null;
     }
 
-    public void updateCounters(int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
+    public void updateCounters(int pagesDiscovered, int pagesStored, int duplicatePagesSkipped, int pagesIndexed) {
         this.pagesDiscovered = pagesDiscovered;
         this.pagesStored = pagesStored;
         this.duplicatePagesSkipped = duplicatePagesSkipped;
+        this.pagesIndexed = pagesIndexed;
     }
 
-    public void markCompleted(Instant now, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
+    public void markCompleted(Instant now, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped, int pagesIndexed) {
         this.status = CrawlJobStatus.COMPLETED;
         this.pagesDiscovered = pagesDiscovered;
         this.pagesStored = pagesStored;
         this.duplicatePagesSkipped = duplicatePagesSkipped;
+        this.pagesIndexed = pagesIndexed;
         this.finishedAtUtc = now;
         this.errorMessage = null;
     }

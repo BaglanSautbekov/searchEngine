@@ -3,6 +3,8 @@ package com.baglan.searchEngine.crawler;
 import com.baglan.searchEngine.crawl.CrawlJob;
 import com.baglan.searchEngine.crawl.CrawlJobRepository;
 import com.baglan.searchEngine.crawler.*;
+import com.baglan.searchEngine.index.PageIndexService;
+import com.baglan.searchEngine.index.PageIndexingException;
 import com.baglan.searchEngine.parcer.HtmlParser;
 import com.baglan.searchEngine.parcer.ParsedPage;
 import org.jsoup.nodes.Document;
@@ -31,19 +33,22 @@ public class CrawlerService {
     private final HtmlFetchClient htmlFetchClient;
     private final UrlNormalizer urlNormalizer;
     private final HtmlParser htmlParser;
+    private final PageIndexService pageIndexService;
 
     public CrawlerService(
             CrawlJobRepository crawlJobRepository,
             CrawledPageRepository crawledPageRepository,
             HtmlFetchClient htmlFetchClient,
             UrlNormalizer urlNormalizer,
-            HtmlParser htmlParser
+            HtmlParser htmlParser,
+            PageIndexService pageIndexService
     ) {
         this.crawlJobRepository = crawlJobRepository;
         this.crawledPageRepository = crawledPageRepository;
         this.htmlFetchClient = htmlFetchClient;
         this.urlNormalizer = urlNormalizer;
         this.htmlParser = htmlParser;
+        this.pageIndexService = pageIndexService;
     }
 
     @Async("crawlerTaskExecutor")
@@ -79,8 +84,9 @@ public class CrawlerService {
         int pagesDiscovered = 1;
         int pagesStored = 0;
         int duplicatePagesSkipped = 0;
+        int pagesIndexed = 0;
 
-        updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+        updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
 
         while (!queue.isEmpty() && pagesStored < job.getMaxPages()) {
             String currentUrl = queue.poll();
@@ -124,24 +130,42 @@ public class CrawlerService {
 
                 if (crawledPageRepository.existsByCrawlJobIdAndNormalizedUrl(jobId, parsedPage.normalizedUrl())) {
                     duplicatePagesSkipped++;
-                    updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+                    updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
                     continue;
                 }
 
                 if (crawledPageRepository.existsByCrawlJobIdAndContentHash(jobId, parsedPage.contentHash())) {
                     duplicatePagesSkipped++;
-                    updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+                    updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
                     log.info("Duplicate content skipped jobId={} url={} contentHash={}",
                             jobId, parsedPage.normalizedUrl(), parsedPage.contentHash());
                     continue;
                 }
 
-                savePage(jobId, parsedPage);
-                pagesStored++;
-                updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+                CrawledPage savedPage = savePage(jobId, parsedPage);
 
-                log.info("Page loaded jobId={} url={} status={} storedPages={}",
-                        jobId, parsedPage.normalizedUrl(), parsedPage.statusCode(), pagesStored);
+                if (savedPage == null) {
+                    duplicatePagesSkipped++;
+                    updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
+                    continue;
+                }
+
+                pagesStored++;
+
+                try {
+                    pageIndexService.indexPage(savedPage);
+                    pagesIndexed++;
+                } catch (PageIndexingException ex) {
+                    log.error("Indexing failed. Marking job as FAILED jobId={} pageId={} url={} error={}",
+                            jobId, savedPage.getId(), savedPage.getNormalizedUrl(), ex.getMessage());
+                    markJobFailed(jobId, ex.getMessage());
+                    return;
+                }
+
+                updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
+
+                log.info("Page loaded and indexed jobId={} url={} status={} storedPages={} indexedPages={}",
+                        jobId, parsedPage.normalizedUrl(), parsedPage.statusCode(), pagesStored, pagesIndexed);
 
                 for (Element link : document.select("a[href]")) {
                     if (pagesStored + queue.size() >= job.getMaxPages()) {
@@ -170,20 +194,20 @@ public class CrawlerService {
                     pagesDiscovered++;
                 }
 
-                updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+                updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
             } catch (Exception ex) {
                 log.warn("Page load error jobId={} url={} error={}",
                         jobId, currentUrl, ex.getMessage());
             }
         }
 
-        markJobCompleted(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+        markJobCompleted(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
 
-        log.info("Crawl completed jobId={} discoveredPages={} storedPages={} duplicatePagesSkipped={}",
-                jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+        log.info("Crawl completed jobId={} discoveredPages={} storedPages={} duplicatePagesSkipped={} indexedPages={}",
+                jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
     }
 
-    private void savePage(UUID jobId, ParsedPage parsedPage) {
+    private CrawledPage savePage(UUID jobId, ParsedPage parsedPage) {
         CrawledPage page = new CrawledPage(
                 UUID.randomUUID(),
                 jobId,
@@ -200,10 +224,11 @@ public class CrawlerService {
         );
 
         try {
-            crawledPageRepository.save(page);
+            return crawledPageRepository.save(page);
         } catch (DataIntegrityViolationException ex) {
             log.debug("Duplicate page ignored jobId={} url={} contentHash={}",
                     jobId, parsedPage.normalizedUrl(), parsedPage.contentHash());
+            return null;
         }
     }
 
@@ -233,16 +258,16 @@ public class CrawlerService {
         crawlJobRepository.save(job);
     }
 
-    private void updateCounters(UUID jobId, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
+    private void updateCounters(UUID jobId, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped, int pagesIndexed) {
         crawlJobRepository.findById(jobId).ifPresent(job -> {
-            job.updateCounters(pagesDiscovered, pagesStored, duplicatePagesSkipped);
+            job.updateCounters(pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
             crawlJobRepository.save(job);
         });
     }
 
-    private void markJobCompleted(UUID jobId, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
+    private void markJobCompleted(UUID jobId, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped, int pagesIndexed) {
         crawlJobRepository.findById(jobId).ifPresent(job -> {
-            job.markCompleted(Instant.now(), pagesDiscovered, pagesStored, duplicatePagesSkipped);
+            job.markCompleted(Instant.now(), pagesDiscovered, pagesStored, duplicatePagesSkipped, pagesIndexed);
             crawlJobRepository.save(job);
         });
     }

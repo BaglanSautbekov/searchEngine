@@ -44,3 +44,4 @@ springdoc:
 app:
   opensearch:
     url: ${OPENSEARCH_URL:http://localhost:9200}
+    index-name: ${OPENSEARCH_INDEX_NAME:pages}
