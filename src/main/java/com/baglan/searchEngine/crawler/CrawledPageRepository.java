@@ -6,4 +6,6 @@ import java.util.UUID;
 
 public interface CrawledPageRepository extends JpaRepository<CrawledPage, UUID> {
     boolean existsByCrawlJobIdAndNormalizedUrl(UUID crawlJobId, String normalizedUrl);
+
+    boolean existsByCrawlJobIdAndContentHash(UUID crawlJobId, String contentHash);
 }

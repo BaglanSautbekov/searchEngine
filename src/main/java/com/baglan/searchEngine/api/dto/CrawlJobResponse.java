@@ -9,6 +9,8 @@ public record CrawlJobResponse(
         String status,
         int maxPages,
         int pagesDiscovered,
+        int pagesStored,
+        int duplicatePagesSkipped,
         int pagesIndexed,
         String errorMessage,
         Instant createdAtUtc,

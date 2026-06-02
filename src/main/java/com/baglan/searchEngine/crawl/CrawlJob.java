@@ -30,6 +30,12 @@ public class CrawlJob {
     @Column(name = "pages_discovered", nullable = false)
     private int pagesDiscovered;
 
+    @Column(name = "pages_stored", nullable = false)
+    private int pagesStored;
+
+    @Column(name = "duplicate_pages_skipped", nullable = false)
+    private int duplicatePagesSkipped;
+
     @Column(name = "pages_indexed", nullable = false)
     private int pagesIndexed;
 
@@ -54,6 +60,8 @@ public class CrawlJob {
         this.status = status;
         this.maxPages = maxPages;
         this.pagesDiscovered = 0;
+        this.pagesStored = 0;
+        this.duplicatePagesSkipped = 0;
         this.pagesIndexed = 0;
         this.createdAtUtc = createdAtUtc;
     }
@@ -61,16 +69,21 @@ public class CrawlJob {
     public void markRunning(Instant now) {
         this.status = CrawlJobStatus.RUNNING;
         this.startedAtUtc = now;
+        this.finishedAtUtc = null;
         this.errorMessage = null;
     }
 
-    public void updatePagesDiscovered(int pagesDiscovered) {
+    public void updateCounters(int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
         this.pagesDiscovered = pagesDiscovered;
+        this.pagesStored = pagesStored;
+        this.duplicatePagesSkipped = duplicatePagesSkipped;
     }
 
-    public void markCompleted(Instant now, int pagesDiscovered) {
+    public void markCompleted(Instant now, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
         this.status = CrawlJobStatus.COMPLETED;
         this.pagesDiscovered = pagesDiscovered;
+        this.pagesStored = pagesStored;
+        this.duplicatePagesSkipped = duplicatePagesSkipped;
         this.finishedAtUtc = now;
         this.errorMessage = null;
     }
@@ -99,6 +112,14 @@ public class CrawlJob {
 
     public int getPagesDiscovered() {
         return pagesDiscovered;
+    }
+
+    public int getPagesStored() {
+        return pagesStored;
+    }
+
+    public int getDuplicatePagesSkipped() {
+        return duplicatePagesSkipped;
     }
 
     public int getPagesIndexed() {

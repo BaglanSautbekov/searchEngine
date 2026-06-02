@@ -3,6 +3,8 @@ package com.baglan.searchEngine.crawler;
 import com.baglan.searchEngine.crawl.CrawlJob;
 import com.baglan.searchEngine.crawl.CrawlJobRepository;
 import com.baglan.searchEngine.crawler.*;
+import com.baglan.searchEngine.parcer.HtmlParser;
+import com.baglan.searchEngine.parcer.ParsedPage;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
@@ -28,17 +30,20 @@ public class CrawlerService {
     private final CrawledPageRepository crawledPageRepository;
     private final HtmlFetchClient htmlFetchClient;
     private final UrlNormalizer urlNormalizer;
+    private final HtmlParser htmlParser;
 
     public CrawlerService(
             CrawlJobRepository crawlJobRepository,
             CrawledPageRepository crawledPageRepository,
             HtmlFetchClient htmlFetchClient,
-            UrlNormalizer urlNormalizer
+            UrlNormalizer urlNormalizer,
+            HtmlParser htmlParser
     ) {
         this.crawlJobRepository = crawlJobRepository;
         this.crawledPageRepository = crawledPageRepository;
         this.htmlFetchClient = htmlFetchClient;
         this.urlNormalizer = urlNormalizer;
+        this.htmlParser = htmlParser;
     }
 
     @Async("crawlerTaskExecutor")
@@ -71,9 +76,13 @@ public class CrawlerService {
         queue.add(normalizedStartUrl);
         queued.add(normalizedStartUrl);
 
-        int savedPages = 0;
+        int pagesDiscovered = 1;
+        int pagesStored = 0;
+        int duplicatePagesSkipped = 0;
 
-        while (!queue.isEmpty() && savedPages < job.getMaxPages()) {
+        updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+
+        while (!queue.isEmpty() && pagesStored < job.getMaxPages()) {
             String currentUrl = queue.poll();
             queued.remove(currentUrl);
 
@@ -87,7 +96,6 @@ public class CrawlerService {
 
             try {
                 FetchedPage fetchedPage = htmlFetchClient.fetch(currentUrl);
-
                 String finalNormalizedUrl = urlNormalizer.normalizeAbsolute(fetchedPage.finalUrl()).orElse(currentUrl);
 
                 if (!isSameHost(finalNormalizedUrl, rootHost)) {
@@ -107,18 +115,36 @@ public class CrawlerService {
                 }
 
                 Document document = fetchedPage.document();
+                ParsedPage parsedPage = htmlParser.parse(
+                        finalNormalizedUrl,
+                        finalNormalizedUrl,
+                        document,
+                        fetchedPage.httpStatus()
+                );
 
-                if (!crawledPageRepository.existsByCrawlJobIdAndNormalizedUrl(jobId, finalNormalizedUrl)) {
-                    savePage(jobId, finalNormalizedUrl, document, fetchedPage.httpStatus());
-                    savedPages++;
-                    updatePagesDiscovered(jobId, savedPages);
-
-                    log.info("Page loaded jobId={} url={} status={} savedPages={}",
-                            jobId, finalNormalizedUrl, fetchedPage.httpStatus(), savedPages);
+                if (crawledPageRepository.existsByCrawlJobIdAndNormalizedUrl(jobId, parsedPage.normalizedUrl())) {
+                    duplicatePagesSkipped++;
+                    updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+                    continue;
                 }
 
+                if (crawledPageRepository.existsByCrawlJobIdAndContentHash(jobId, parsedPage.contentHash())) {
+                    duplicatePagesSkipped++;
+                    updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+                    log.info("Duplicate content skipped jobId={} url={} contentHash={}",
+                            jobId, parsedPage.normalizedUrl(), parsedPage.contentHash());
+                    continue;
+                }
+
+                savePage(jobId, parsedPage);
+                pagesStored++;
+                updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
+
+                log.info("Page loaded jobId={} url={} status={} storedPages={}",
+                        jobId, parsedPage.normalizedUrl(), parsedPage.statusCode(), pagesStored);
+
                 for (Element link : document.select("a[href]")) {
-                    if (savedPages + queue.size() >= job.getMaxPages()) {
+                    if (pagesStored + queue.size() >= job.getMaxPages()) {
                         break;
                     }
 
@@ -141,54 +167,44 @@ public class CrawlerService {
 
                     queue.add(nextUrl);
                     queued.add(nextUrl);
+                    pagesDiscovered++;
                 }
+
+                updateCounters(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
             } catch (Exception ex) {
                 log.warn("Page load error jobId={} url={} error={}",
                         jobId, currentUrl, ex.getMessage());
             }
         }
 
-        markJobCompleted(jobId, savedPages);
+        markJobCompleted(jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
 
-        log.info("Crawl completed jobId={} savedPages={}", jobId, savedPages);
+        log.info("Crawl completed jobId={} discoveredPages={} storedPages={} duplicatePagesSkipped={}",
+                jobId, pagesDiscovered, pagesStored, duplicatePagesSkipped);
     }
 
-    private void savePage(UUID jobId, String normalizedUrl, Document document, int httpStatus) {
-        String title = normalizeText(document.title());
-        String rawText = extractRawText(document);
-
+    private void savePage(UUID jobId, ParsedPage parsedPage) {
         CrawledPage page = new CrawledPage(
                 UUID.randomUUID(),
                 jobId,
-                normalizedUrl,
-                normalizedUrl,
-                title,
-                rawText,
-                httpStatus,
-                Instant.now()
+                parsedPage.url(),
+                parsedPage.normalizedUrl(),
+                parsedPage.title(),
+                parsedPage.description(),
+                parsedPage.h1(),
+                parsedPage.bodyText(),
+                parsedPage.canonicalUrl(),
+                parsedPage.contentHash(),
+                parsedPage.statusCode(),
+                parsedPage.fetchedAtUtc()
         );
 
         try {
             crawledPageRepository.save(page);
         } catch (DataIntegrityViolationException ex) {
-            log.debug("Duplicate page ignored jobId={} url={}", jobId, normalizedUrl);
+            log.debug("Duplicate page ignored jobId={} url={} contentHash={}",
+                    jobId, parsedPage.normalizedUrl(), parsedPage.contentHash());
         }
-    }
-
-    private String extractRawText(Document document) {
-        document.select("script, style, noscript").remove();
-
-        String text = document.body() == null ? document.text() : document.body().text();
-
-        return normalizeText(text);
-    }
-
-    private String normalizeText(String text) {
-        if (text == null) {
-            return "";
-        }
-
-        return text.replaceAll("\\s+", " ").trim();
     }
 
     private boolean isHtml(String contentType) {
@@ -217,16 +233,16 @@ public class CrawlerService {
         crawlJobRepository.save(job);
     }
 
-    private void updatePagesDiscovered(UUID jobId, int pagesDiscovered) {
+    private void updateCounters(UUID jobId, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
         crawlJobRepository.findById(jobId).ifPresent(job -> {
-            job.updatePagesDiscovered(pagesDiscovered);
+            job.updateCounters(pagesDiscovered, pagesStored, duplicatePagesSkipped);
             crawlJobRepository.save(job);
         });
     }
 
-    private void markJobCompleted(UUID jobId, int pagesDiscovered) {
+    private void markJobCompleted(UUID jobId, int pagesDiscovered, int pagesStored, int duplicatePagesSkipped) {
         crawlJobRepository.findById(jobId).ifPresent(job -> {
-            job.markCompleted(Instant.now(), pagesDiscovered);
+            job.markCompleted(Instant.now(), pagesDiscovered, pagesStored, duplicatePagesSkipped);
             crawlJobRepository.save(job);
         });
     }

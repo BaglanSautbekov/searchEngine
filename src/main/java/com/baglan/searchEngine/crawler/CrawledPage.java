@@ -23,17 +23,29 @@ public class CrawledPage {
     @Column(name = "normalized_url", nullable = false)
     private String normalizedUrl;
 
-    @Column(name = "title")
+    @Column(name = "title", nullable = false)
     private String title;
 
-    @Column(name = "raw_text", nullable = false, columnDefinition = "text")
-    private String rawText;
+    @Column(name = "description", nullable = false)
+    private String description;
 
-    @Column(name = "http_status", nullable = false)
-    private int httpStatus;
+    @Column(name = "h1", nullable = false)
+    private String h1;
 
-    @Column(name = "created_at_utc", nullable = false)
-    private Instant createdAtUtc;
+    @Column(name = "body_text", nullable = false, columnDefinition = "text")
+    private String bodyText;
+
+    @Column(name = "canonical_url")
+    private String canonicalUrl;
+
+    @Column(name = "content_hash", nullable = false, length = 64)
+    private String contentHash;
+
+    @Column(name = "status_code", nullable = false)
+    private int statusCode;
+
+    @Column(name = "fetched_at_utc", nullable = false)
+    private Instant fetchedAtUtc;
 
     protected CrawledPage() {
     }
@@ -44,18 +56,26 @@ public class CrawledPage {
             String url,
             String normalizedUrl,
             String title,
-            String rawText,
-            int httpStatus,
-            Instant createdAtUtc
+            String description,
+            String h1,
+            String bodyText,
+            String canonicalUrl,
+            String contentHash,
+            int statusCode,
+            Instant fetchedAtUtc
     ) {
         this.id = id;
         this.crawlJobId = crawlJobId;
         this.url = url;
         this.normalizedUrl = normalizedUrl;
         this.title = title;
-        this.rawText = rawText;
-        this.httpStatus = httpStatus;
-        this.createdAtUtc = createdAtUtc;
+        this.description = description;
+        this.h1 = h1;
+        this.bodyText = bodyText;
+        this.canonicalUrl = canonicalUrl;
+        this.contentHash = contentHash;
+        this.statusCode = statusCode;
+        this.fetchedAtUtc = fetchedAtUtc;
     }
 
     public UUID getId() {
@@ -78,15 +98,31 @@ public class CrawledPage {
         return title;
     }
 
-    public String getRawText() {
-        return rawText;
+    public String getDescription() {
+        return description;
     }
 
-    public int getHttpStatus() {
-        return httpStatus;
+    public String getH1() {
+        return h1;
     }
 
-    public Instant getCreatedAtUtc() {
-        return createdAtUtc;
+    public String getBodyText() {
+        return bodyText;
+    }
+
+    public String getCanonicalUrl() {
+        return canonicalUrl;
+    }
+
+    public String getContentHash() {
+        return contentHash;
+    }
+
+    public int getStatusCode() {
+        return statusCode;
+    }
+
+    public Instant getFetchedAtUtc() {
+        return fetchedAtUtc;
     }
 }

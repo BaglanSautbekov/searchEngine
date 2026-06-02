@@ -6,7 +6,6 @@ import com.baglan.searchEngine.common.NotFoundException;
 import com.baglan.searchEngine.crawl.CrawlJob;
 import com.baglan.searchEngine.crawl.CrawlJobRepository;
 import com.baglan.searchEngine.crawl.CrawlJobStatus;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +59,8 @@ public class CrawlJobService {
                 job.getStatus().name(),
                 job.getMaxPages(),
                 job.getPagesDiscovered(),
+                job.getPagesStored(),
+                job.getDuplicatePagesSkipped(),
                 job.getPagesIndexed(),
                 job.getErrorMessage(),
                 job.getCreatedAtUtc(),
