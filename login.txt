@@ -1,0 +1,8 @@
+Login feature specification (DevOps practical work 1)
+
+1. Require a username and password.
+2. Reject empty credentials.
+3. Never log or store plaintext passwords.
+4. Return a generic error when authentication fails.
+
+This file documents a proposed feature; it does not implement authentication.
